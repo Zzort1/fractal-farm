@@ -6,6 +6,14 @@
  * at a time. A 202 means "the farm is rendering it": the tile is retried with
  * backoff, but only while it is still wanted — pan away and the polling for
  * it simply stops.
+ *
+ * ## Where a tile came from
+ *
+ * The server stamps each response with x-cache (memory / store / render), but
+ * the fastest layer never reaches the server at all: tile URLs are immutable,
+ * so the browser's own HTTP cache answers repeat requests — and replays the
+ * *original* x-cache header while doing so. The Resource Timing API tells the
+ * two apart: a response served from the browser cache transferred 0 bytes.
  */
 import { decodeTile } from "@fractal-farm/core";
 
@@ -13,6 +21,23 @@ const MAX_CONCURRENT = 6;
 const MAX_ENTRIES = 900;
 const RETRY_BASE_MS = 350;
 const RETRY_MAX_MS = 2500;
+
+/** Where this browser's tiles came from, for the control room. */
+export const clientStats = { browser: 0, memory: 0, store: 0, render: 0, edge: 0 };
+
+// The default buffer holds 250 entries; a busy session fetches far more.
+performance.setResourceTimingBufferSize?.(2000);
+performance.addEventListener?.("resourcetimingbufferfull", () => performance.clearResourceTimings());
+
+/**
+ * @param {string} url - Request URL as fetched
+ * @returns {boolean} True when the response came from the browser's HTTP cache
+ */
+function fromBrowserCache(url) {
+  const absolute = new URL(url, location.href).href;
+  const timing = performance.getEntriesByName(absolute).at(-1);
+  return Boolean(timing && timing.transferSize === 0 && timing.decodedBodySize > 0);
+}
 
 export class TileLoader {
   /**
@@ -78,7 +103,12 @@ export class TileLoader {
         entry.tile = tile;
         // A tile that made us wait was rendered for us, whatever layer the
         // final poll happened to be answered from.
-        entry.source = entry.sawPending ? "render" : (response.headers.get("x-cache") ?? "edge");
+        entry.source = entry.sawPending
+          ? "render"
+          : fromBrowserCache(url)
+            ? "browser"
+            : (response.headers.get("x-cache") ?? "edge");
+        clientStats[entry.source] = (clientStats[entry.source] ?? 0) + 1;
         entry.arrivedAt = performance.now();
         entry.stamp = null;
       } else {
@@ -108,6 +138,13 @@ export class TileLoader {
       if (this.entries.size <= MAX_ENTRIES * 0.8) break;
       if (!this.wantedSet.has(url) && entry.state !== "loading") this.entries.delete(url);
     }
+  }
+
+  /** @returns {number} Decoded tiles held in this tab */
+  held() {
+    let n = 0;
+    for (const entry of this.entries.values()) if (entry.state === "ready") n += 1;
+    return n;
   }
 
   /** Forget everything, e.g. after the server cache was flushed. */

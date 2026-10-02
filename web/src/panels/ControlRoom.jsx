@@ -3,6 +3,7 @@
  * stream, so it shows what the cloud is doing rather than what this browser did.
  */
 import { SOURCE_COLOURS } from "../viewer/FractalCanvas.jsx";
+import { clientStats } from "../viewer/tileLoader.js";
 import FleetPanel from "./FleetPanel.jsx";
 import Sparkline from "./Sparkline.jsx";
 import { useStats } from "./useStats.js";
@@ -21,7 +22,38 @@ const postJson = (path, body) =>
  * @param {{onFlushed: Function}} props - Called after the server cache is flushed
  * @returns {JSX.Element} Panel
  */
-export default function ControlRoom({ onFlushed }) {
+/**
+ * This tab's view of the cache layers — including the browser's HTTP cache,
+ * which the server can never count because those requests never reach it.
+ */
+function ClientLayers({ held }) {
+  const layers = ["browser", "memory", "store", "render"];
+  const total = layers.reduce((n, k) => n + (clientStats[k] ?? 0), 0);
+  const hits = total - (clientStats.render ?? 0);
+  return (
+    <section>
+      <h3>
+        This browser <small>{total ? `${Math.round((hits / total) * 100)}% hits` : "no tiles yet"}</small>
+      </h3>
+      <div className="stacked-bar">
+        {layers.map((k) => (
+          <span key={k} style={{ width: `${total ? (clientStats[k] / total) * 100 : 0}%`, background: SOURCE_COLOURS[k] }} />
+        ))}
+      </div>
+      <div className="legend">
+        {layers.map((k) => (
+          <span key={k}>
+            <i style={{ background: SOURCE_COLOURS[k] }} />
+            {k === "browser" ? "browser cache" : k === "render" ? "rendered" : `server ${k}`} {clientStats[k]}
+          </span>
+        ))}
+      </div>
+      <p className="hint">{held} tiles held in this tab — revisiting them sends no request at all.</p>
+    </section>
+  );
+}
+
+export default function ControlRoom({ onFlushed, held = 0 }) {
   const { stats, connected } = useStats();
 
   if (!stats) {
@@ -65,8 +97,8 @@ export default function ControlRoom({ onFlushed }) {
           <span>renders/s</span>
         </div>
         <div className="kpi kpi-lime">
-          <b>{Math.round(stats.hitRatio * 100)}%</b>
-          <span>cache hits</span>
+          <b>{stats.recentHitRatio === null ? "–" : `${Math.round(stats.recentHitRatio * 100)}%`}</b>
+          <span>server hits · 60 s ({Math.round(stats.hitRatio * 100)}% all-time)</span>
         </div>
         <div className="kpi kpi-gold">
           <b>{queue.visible}</b>
@@ -74,8 +106,12 @@ export default function ControlRoom({ onFlushed }) {
         </div>
       </div>
 
+      <ClientLayers held={held} />
+
       <section>
-        <h3>Where tiles came from</h3>
+        <h3>
+          Where the server's tiles came from <small>requests that got past the browser</small>
+        </h3>
         <div className="stacked-bar">
           <span style={{ width: `${share(counters.memory)}%`, background: SOURCE_COLOURS.memory }} />
           <span style={{ width: `${share(counters.store)}%`, background: SOURCE_COLOURS.store }} />

@@ -14,7 +14,8 @@
  *  - worker colours: each tile tinted by the worker that rendered it, so
  *    scaling out is literally visible as more colours appearing;
  *  - source flashes: a tile's border flashes by where it came from —
- *    cyan memory, lime store, magenta fresh render, gold CDN edge;
+ *    sky-blue browser cache, cyan server memory, lime store, magenta fresh
+ *    render, gold CDN edge;
  *  - a dashed, marching border on tiles the farm is still rendering.
  */
 import { useEffect, useRef } from "react";
@@ -24,6 +25,7 @@ import { getPalette, paletteLut } from "./palettes.js";
 import { TileLoader } from "./tileLoader.js";
 
 export const SOURCE_COLOURS = {
+  browser: "#4cc9f0",
   memory: "#00f5d4",
   store: "#9ef01a",
   render: "#ff2bd6",
@@ -261,6 +263,7 @@ export default function FractalCanvas(props) {
         level,
         tiles: visible.length,
         loading: wanted.length,
+        held: loader.held(),
         cursor: state.cursor,
       };
       const key = JSON.stringify(report);

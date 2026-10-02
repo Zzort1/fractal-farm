@@ -144,6 +144,9 @@ export class Stats {
       uptimeS: Math.round((Date.now() - this.startedAt) / 1000),
       counters: { ...this.counters },
       hitRatio: served ? (this.counters.memory + this.counters.store) / served : 0,
+      // Lifetime ratios drift towards whatever dominated early on; the last
+      // minute shows what the cache is doing now.
+      recentHitRatio: this.#recentHitRatio(60),
       queue: this.depth,
       cache: this.cache.stats(),
       workers: [...this.workers.values()].map((w) => ({
@@ -187,6 +190,16 @@ export class Stats {
     this.workers.get(render.workerId).lastSeen = Date.now();
   }
 
+  #recentHitRatio(seconds) {
+    let served = 0;
+    let hits = 0;
+    for (const h of this.history.slice(-seconds)) {
+      served += h.served ?? 0;
+      hits += h.hits ?? 0;
+    }
+    return served ? hits / served : null;
+  }
+
   #workerState(worker) {
     if (worker.lastSeen === undefined) return worker.state;
     return Date.now() - worker.lastSeen < WORKER_ACTIVE_MS ? "busy" : "idle";
@@ -219,6 +232,8 @@ export class Stats {
       requests: c.requests - last.requests,
       rendered: c.rendered - last.rendered,
       hitRatio: servedNow ? hitsNow / servedNow : null,
+      served: servedNow,
+      hits: hitsNow,
       queueDepth: this.depth.visible,
       // In the cloud, messages in flight are exactly the jobs workers hold.
       busyWorkers:

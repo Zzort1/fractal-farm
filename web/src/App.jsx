@@ -125,7 +125,7 @@ export default function App() {
         <div className="stage-help">drag to pan · scroll to zoom · double-click to dive · alt+double-click to rise</div>
       </main>
 
-      <ControlRoom onFlushed={() => setClearToken((t) => t + 1)} />
+      <ControlRoom onFlushed={() => setClearToken((t) => t + 1)} held={view?.held ?? 0} />
 
       <footer className="statusbar">
         {view && (
