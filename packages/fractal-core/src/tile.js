@@ -166,6 +166,27 @@ export function decodeTile(input) {
 }
 
 /**
+ * Read only the header of an encoded tile — who rendered it, and how fast.
+ * @param {Uint8Array} bytes - Encoded (uncompressed) tile, or at least its first 32 bytes
+ * @returns {{width: number, height: number, renderMs: number, workerId: string}} Header
+ */
+export function readTileHeader(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (String.fromCharCode(...bytes.subarray(0, 4)) !== MAGIC) throw new Error("Not a tile");
+
+  let workerId = "";
+  for (let i = 0; i < WORKER_ID_BYTES && bytes[12 + i] !== 0; i += 1) {
+    workerId += String.fromCharCode(bytes[12 + i]);
+  }
+  return {
+    width: view.getUint16(4, true),
+    height: view.getUint16(6, true),
+    renderMs: view.getUint32(8, true),
+    workerId,
+  };
+}
+
+/**
  * Storage key for a tile: identical in memory, object store and logs.
  * @param {{fractal: string, paramKey: string, z: number, x: number, y: number}} spec - Tile identity
  * @returns {string} Key

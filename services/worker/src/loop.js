@@ -28,11 +28,23 @@ export function startWorker({ id, queue, store, notifier, onEvent = () => {} }) 
 
   const loop = async () => {
     onEvent({ type: "idle", workerId: id });
+    let backoffMs = 500;
 
     while (running) {
-      const lease = await queue.receive({ waitMs: 20000 });
+      let lease;
+      try {
+        lease = await queue.receive({ waitMs: 20000 });
+        backoffMs = 500;
+      } catch (error) {
+        // The queue being briefly unreachable must not kill the worker.
+        onEvent({ type: "receive-error", workerId: id, error: error.message });
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        backoffMs = Math.min(backoffMs * 2, 10000);
+        continue;
+      }
+
       if (!lease || !running) {
-        lease?.release();
+        await lease?.release();
         continue;
       }
 
@@ -41,7 +53,7 @@ export function startWorker({ id, queue, store, notifier, onEvent = () => {} }) 
       try {
         if (await store.has(job.key)) {
           await notifier.publish(job.key, { workerId: id, duplicate: true });
-          lease.ack();
+          await lease.ack();
           onEvent({ type: "duplicate", workerId: id, key: job.key });
           continue;
         }
@@ -55,7 +67,7 @@ export function startWorker({ id, queue, store, notifier, onEvent = () => {} }) 
         const bytes = await gzipAsync(encodeTile({ ...tile, renderMs, workerId: id }));
         await store.put(job.key, bytes);
         await notifier.publish(job.key, { workerId: id, renderMs });
-        lease.ack();
+        await lease.ack();
 
         onEvent({
           type: "rendered",
@@ -69,10 +81,10 @@ export function startWorker({ id, queue, store, notifier, onEvent = () => {} }) 
       } catch (error) {
         // Stopping mid-render is a scale-in, not a fault: return the job unpenalised.
         if (!running) {
-          lease.release();
+          await lease.release();
           continue;
         }
-        lease.retry(error.message);
+        await lease.retry(error.message);
         onEvent({ type: "failed", workerId: id, key: job.key, error: error.message });
       } finally {
         if (running) onEvent({ type: "idle", workerId: id });
@@ -80,12 +92,21 @@ export function startWorker({ id, queue, store, notifier, onEvent = () => {} }) 
     }
   };
 
-  loop().catch((error) => onEvent({ type: "crashed", workerId: id, error: error.message }));
+  const done = loop().catch((error) => onEvent({ type: "crashed", workerId: id, error: error.message }));
 
   return {
     id,
-    stop: async () => {
+    /**
+     * Stop taking work. With a grace period, a render already under way may
+     * finish and be stored first — how a container honours SIGTERM on scale-in.
+     * @param {{graceMs?: number}} options - How long to let current work finish
+     * @returns {Promise<void>}
+     */
+    stop: async ({ graceMs = 0 } = {}) => {
       running = false;
+      if (graceMs > 0) {
+        await Promise.race([done, new Promise((resolve) => setTimeout(resolve, graceMs))]);
+      }
       await thread.close();
     },
   };

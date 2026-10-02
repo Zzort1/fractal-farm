@@ -18,16 +18,25 @@
  *    answers 202 and the client polls. Connections are not held for the length
  *    of a slow render, and a lost job is re-queued once its wait expires.
  */
-import { canonicalParams, getFractal, isValidTile, tileKey, tileUrl } from "@fractal-farm/core";
+import { gunzipSync } from "node:zlib";
+import {
+  canonicalParams,
+  getFractal,
+  isValidTile,
+  readTileHeader,
+  tileKey,
+  tileUrl,
+} from "@fractal-farm/core";
 
 /** How long a queued job may go unanswered before it is assumed lost. */
 const JOB_TIMEOUT_MS = 120_000;
 
 export class TileService {
   /**
-   * @param {Object} deps - { queue, store, cache, notifier, stats, renderWaitMs }
+   * @param {Object} deps - { queue, store, cache, notifier, stats, renderWaitMs, observeRenders }
    */
-  constructor({ queue, store, cache, notifier, stats, renderWaitMs }) {
+  constructor({ queue, store, cache, notifier, stats, renderWaitMs, observeRenders = false }) {
+    this.observeRenders = observeRenders;
     this.queue = queue;
     this.store = store;
     this.cache = cache;
@@ -73,40 +82,70 @@ export class TileService {
       done = this.#enqueue(key, { fractal: fractalId, params, paramKey, z, x, y });
     }
 
-    const payload = await Promise.race([done, delay(this.renderWaitMs)]);
-    if (!payload) return { status: 202, key };
-
-    const rendered = await this.store.get(key);
-    if (!rendered) return { status: 202, key };
-
-    this.cache.set(key, rendered);
-    return { status: 200, body: rendered, source: "render", key };
+    const completed = await Promise.race([done, delay(this.renderWaitMs)]);
+    if (!completed) return { status: 202, key };
+    return { status: 200, body: completed.bytes, source: "render", key };
   }
 
   /**
    * Queue a render and remember that it is in flight.
    * @param {string} key - Tile key
-   * @param {Object} spec - Canonical tile spec
+   * @param {Object} tileSpec - Canonical tile spec
    * @returns {Promise<Object|null>} Completion payload, or null if the job timed out
    */
-  #enqueue(key, spec) {
+  #enqueue(key, tileSpec) {
+    const spec = { ...tileSpec, enqueuedAt: Date.now() };
     // Subscribe before sending, so even an instant completion is not missed.
-    const done = this.notifier.waitFor(key, JOB_TIMEOUT_MS).then((payload) => {
-      this.pending.delete(key);
-      if (!payload) this.stats.count("jobTimeouts");
-      return payload;
-    });
+    // On completion the tile is read once and put in the memory cache, so
+    // every request coalesced onto this render — and every poll after a
+    // 202 — is answered from memory rather than another store read.
+    const done = this.notifier
+      .waitFor(key, JOB_TIMEOUT_MS)
+      .then(async (payload) => {
+        if (!payload) {
+          this.stats.count("jobTimeouts");
+          return null;
+        }
+        const bytes = await this.store.get(key);
+        if (!bytes) return null;
+        this.cache.set(key, bytes);
+        if (this.observeRenders) this.#observe(key, bytes, spec);
+        return { ...payload, bytes };
+      })
+      .catch((error) => {
+        console.error("Completion handling failed", key, error.message);
+        return null;
+      })
+      .finally(() => this.pending.delete(key));
 
     this.pending.set(key, done);
     this.stats.count("enqueued");
 
-    this.queue.send({ ...spec, key, enqueuedAt: Date.now() }).catch((error) => {
+    this.queue.send({ ...spec, key }).catch((error) => {
       // The job never reached the queue; let the next request try again.
       console.error("Failed to enqueue", key, error.message);
       this.pending.delete(key);
     });
 
     return done;
+  }
+
+  /**
+   * Cloud mode: workers are other containers, so learn who rendered a tile
+   * (and how fast) from the tile's own header.
+   */
+  #observe(key, bytes, spec) {
+    try {
+      const header = readTileHeader(gunzipSync(bytes));
+      this.stats.observeRender({
+        workerId: header.workerId || "unknown",
+        renderMs: header.renderMs,
+        key,
+        waitedMs: Date.now() - spec.enqueuedAt,
+      });
+    } catch (error) {
+      console.error("Unreadable tile header", key, error.message);
+    }
   }
 }
 

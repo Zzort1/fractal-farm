@@ -22,7 +22,12 @@ import { TileService } from "./tiles.js";
 const config = loadConfig();
 const platform = createPlatform(config);
 const stats = new Stats({ queue: platform.queue, cache: platform.cache, platform: config.platform });
-const tiles = new TileService({ ...platform, stats, renderWaitMs: config.renderWaitMs });
+const tiles = new TileService({
+  ...platform,
+  stats,
+  renderWaitMs: config.renderWaitMs,
+  observeRenders: config.platform !== "local",
+});
 
 const localWorkers =
   config.platform === "local" ? new LocalWorkerPool({ ...platform, stats }) : null;

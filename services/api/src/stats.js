@@ -6,13 +6,18 @@
  * Server-Sent Events — a one-way stream on plain HTTP, which is all a
  * dashboard needs.
  *
- * Local mode sees worker events directly. In the cloud the same snapshot will
- * be assembled from queue metrics and the container service instead.
+ * Local mode sees worker events directly. In the cloud, workers are separate
+ * containers the API cannot hear from, so it learns about them from the tiles
+ * they produce — every tile header names its worker and render time — and
+ * reads queue depth from SQS.
  */
 import { workerColour } from "@fractal-farm/core";
 
 const HISTORY_SECONDS = 120;
 const RECENT_RENDERS = 40;
+/** Cloud mode: a worker seen this recently counts as busy; after WORKER_FORGET_MS it is dropped. */
+const WORKER_ACTIVE_MS = 4000;
+const WORKER_FORGET_MS = 5 * 60 * 1000;
 
 export class Stats {
   /**
@@ -43,8 +48,17 @@ export class Stats {
     this.history = [];
     this.clients = new Set();
     this.lastCounters = { ...this.counters };
+    this.depth = { visible: 0, inflight: 0, deadLetters: 0 };
 
-    this.timer = setInterval(() => this.#tick(), 1000);
+    // Never overlap ticks: a slow SQS read should delay one frame, not stack them.
+    let ticking = false;
+    this.timer = setInterval(() => {
+      if (ticking) return;
+      ticking = true;
+      this.#tick()
+        .catch((error) => console.error("Stats tick failed:", error.message))
+        .finally(() => (ticking = false));
+    }, 1000);
     this.timer.unref();
   }
 
@@ -129,12 +143,12 @@ export class Stats {
       uptimeS: Math.round((Date.now() - this.startedAt) / 1000),
       counters: { ...this.counters },
       hitRatio: served ? (this.counters.memory + this.counters.store) / served : 0,
-      queue: this.queue.depth(),
+      queue: this.depth,
       cache: this.cache.stats(),
       workers: [...this.workers.values()].map((w) => ({
         id: w.id,
         colour: w.colour,
-        state: w.state,
+        state: this.#workerState(w),
         key: w.key,
         tiles: w.tiles,
         lastMs: Math.round(w.lastMs),
@@ -161,7 +175,38 @@ export class Stats {
     response.on("close", () => this.clients.delete(response));
   }
 
-  #tick() {
+  /**
+   * Cloud mode: record a render observed through its tile header.
+   * @param {{workerId: string, renderMs: number, key: string, waitedMs?: number}} render - What the tile says
+   * @returns {void}
+   */
+  observeRender(render) {
+    this.workerEvent({ type: "rendered", ...render });
+    this.workers.get(render.workerId).lastSeen = Date.now();
+  }
+
+  #workerState(worker) {
+    if (worker.lastSeen === undefined) return worker.state;
+    return Date.now() - worker.lastSeen < WORKER_ACTIVE_MS ? "busy" : "idle";
+  }
+
+  async #refreshDepth() {
+    try {
+      this.depth = await this.queue.depth();
+    } catch (error) {
+      console.error("Queue depth unavailable:", error.message);
+    }
+  }
+
+  async #tick() {
+    await this.#refreshDepth();
+
+    for (const [id, worker] of this.workers) {
+      if (worker.lastSeen !== undefined && Date.now() - worker.lastSeen > WORKER_FORGET_MS) {
+        this.workers.delete(id);
+      }
+    }
+
     const c = this.counters;
     const last = this.lastCounters;
     const servedNow = c.memory + c.store + c.render - (last.memory + last.store + last.render);
@@ -172,8 +217,12 @@ export class Stats {
       requests: c.requests - last.requests,
       rendered: c.rendered - last.rendered,
       hitRatio: servedNow ? hitsNow / servedNow : null,
-      queueDepth: this.queue.depth().visible,
-      busyWorkers: [...this.workers.values()].filter((w) => w.state === "busy").length,
+      queueDepth: this.depth.visible,
+      // In the cloud, messages in flight are exactly the jobs workers hold.
+      busyWorkers:
+        this.platform === "local"
+          ? [...this.workers.values()].filter((w) => w.state === "busy").length
+          : this.depth.inflight,
       workers: this.workers.size,
     });
     if (this.history.length > HISTORY_SECONDS) this.history.shift();

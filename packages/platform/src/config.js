@@ -35,7 +35,15 @@ export function loadConfig(env = process.env) {
     /** Local mode: render workers started inside the API process. */
     localWorkers: int(env.LOCAL_WORKERS, 4),
 
-    /** Attempts before a job is dead-lettered. */
+    /** Attempts before a job is dead-lettered (local; SQS uses its redrive policy). */
     maxAttempts: int(env.MAX_ATTEMPTS, 3),
+
+    /** AWS mode: where tiles and jobs live. */
+    tileBucket: env.TILE_BUCKET,
+    queueUrl: env.QUEUE_URL,
+    dlqUrl: env.DLQ_URL,
+
+    /** A name for this process in logs and tile headers. */
+    instanceId: env.INSTANCE_ID,
   };
 }

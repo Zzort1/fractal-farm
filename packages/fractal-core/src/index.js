@@ -13,6 +13,7 @@ export {
   decodeValue,
   encodeTile,
   isValidTile,
+  readTileHeader,
   renderTile,
   tileBounds,
   tileKey,
