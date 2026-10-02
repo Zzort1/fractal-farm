@@ -7,11 +7,11 @@ Assessment 2 until after the A2 oral.
 | Stage | What | Proves | Status |
 |---|---|---|---|
 | 0 | Local draft: core maths, adapters, API, workers, UI, load test | Whole design works on one machine | **done** |
-| 1 | Account probe: confirm SQS, S3, ECS, ElastiCache, CloudFront, Application Auto Scaling, CloudWatch permissions under the CAB432 guardrails | No surprises later | |
-| 2 | AWS adapters: SQS (+DLQ) queue, S3 store; worker as its own entry point | Same code, cloud backing | |
-| 3 | Containers: Dockerfiles, ECR, ECS services for API and worker (reuse A2 cluster) | Runs on Fargate | |
-| 4 | Public path: ALB (dispatcher-push), Route 53 `n5453313-fractal.cab432.com`, ACM | HTTPS entry point | |
-| 5 | **Worker auto-scaling**: target tracking on queue backlog per task, min 0 | Metric-based scaling, scale-to-zero | |
+| 1 | Account probe: SQS, S3, ECS, ECR, ELB, Route 53 allowed; Application Auto Scaling, EC2 ASG, ElastiCache, CloudFront, SNS denied — see [stage-1-permissions.md](stage-1-permissions.md) | Know the constraints | **done** |
+| 2 | AWS adapters: SQS (+DLQ) queue, S3 store, store-polling notifier; standalone worker | Same code, cloud backing | **done** |
+| 3 | Containers: Dockerfiles, ECR, ECS services for API and worker (reuse A2 cluster) | Runs on Fargate | **done** |
+| 4 | Public path: ALB (dispatcher-push), Route 53 `n5453313-fractal.cab432.com`, ACM | HTTPS entry point | **done** |
+| 5 | **Worker auto-scaling**: self-built controller (target tracking on backlog per worker via ecs:UpdateService, min 0) | Metric-based scaling, scale-to-zero | **done** |
 | 6 | **Caching**: ElastiCache (shared memory layer + pub-sub notifier), CloudFront edge in front of tiles and the static site | Edge + in-memory caching | |
 | 7 | API scaling on ALB request count; resilience (timeouts, retries, DLQ alarm) | Second scaling type | |
 | 8 | Persistence extras: DynamoDB share links/bookmarks with TTL; S3 lifecycle on cold tiles | Structured store, garbage collection | |
@@ -50,3 +50,32 @@ parallel, which is the property the cloud scaling stages rely on.
 
 Smoke checks: non-canonical URL → 301; unknown parameter → 400; out-of-range
 tile → 404; repeat request → `x-cache: memory`; tile header carries worker id.
+
+## Stage 5 evidence (AWS, 2026-10-03)
+
+Load test against https://n5453313-fractal.cab432.com — 24 users, 150 s,
+Lyapunov at 2048 iterations, 30% popular tiles. Scaler policy: target 4 jobs
+per worker, 0–8 workers, 60 s scale-in cool-down, 10 s tick.
+
+| Time (UTC) | Scaler decision |
+|---|---|
+| 23:42:45 | 1 → 6 — "scale out: backlog 22 needs 6 at 4/worker" |
+| 23:43:05 | 6 → 8 — "scale out: backlog 32 needs 8 at 4/worker" (max) |
+| 23:46:15 | 8 → 0 — "scale to zero: idle for the whole cool-down" |
+
+ECS started the five tasks 10 s after the first decision. Results: 164 tiles,
+0 errors, 17.7% hit ratio; time to tile p50 12.8 s, p95 72 s.
+
+**Finding — tune next.** Fargate renders far slower than a desktop core: a
+2048-iteration Lyapunov tile takes p50 5.5 s, p95 8.7 s on a 0.5 vCPU worker
+(n = 145), so 8 workers deliver ~1.4 tiles/s and a 4-job backlog per worker
+means ~22 s waits. AWS's guidance for SQS-based scaling sets the target from
+*acceptable latency ÷ average processing time*; with 5.5 s tiles and a ~6 s
+latency goal the target should be ~1 job per worker, not 4. Larger workers
+(1 vCPU) halve render time at the same cost per CPU-second.
+
+Cache display fix (same day): repeat views are answered by the browser's
+HTTP cache and never reach the server, so the server's hit ratio understated
+caching. The control room now shows this browser's layer mix (Resource
+Timing detects 0-byte browser-cache responses) and a rolling 60 s server
+hit ratio.
