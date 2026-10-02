@@ -1,0 +1,10 @@
+{
+  "name": "@fractal-farm/platform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Infrastructure adapters — queue, tile store, in-memory cache, completion notifier — behind one interface, so services run identically on a laptop and in the cloud.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  }
+}

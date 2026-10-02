@@ -1,0 +1,10 @@
+{
+  "name": "@fractal-farm/core",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pure fractal maths, tile geometry, parameter canonicalisation and the binary tile format. Shared by the browser, the API and the workers.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "@fractal-farm/api",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tile API: canonicalises requests, serves tiles through the cache layers, queues misses for rendering, and streams live system stats.",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "@fractal-farm/core": "*",
+    "@fractal-farm/platform": "*",
+    "@fractal-farm/worker": "*"
+  }
+}

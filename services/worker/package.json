@@ -1,0 +1,14 @@
+{
+  "name": "@fractal-farm/worker",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Render worker: pulls tile jobs from the queue, renders them on a CPU thread, stores the result and announces completion.",
+  "type": "module",
+  "exports": {
+    ".": "./src/loop.js"
+  },
+  "dependencies": {
+    "@fractal-farm/core": "*",
+    "@fractal-farm/platform": "*"
+  }
+}

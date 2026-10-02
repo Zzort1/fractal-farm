@@ -1,0 +1,23 @@
+{
+  "name": "fractal-farm",
+  "private": true,
+  "version": "0.1.0",
+  "description": "CAB432 Assessment 3 — a distributed fractal tile render farm with layered caching and queue-driven worker scaling.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "web"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "dev:api": "npm run dev --workspace @fractal-farm/api",
+    "dev:web": "npm run dev --workspace @fractal-farm/web",
+    "build": "npm run build --workspace @fractal-farm/web",
+    "test": "node --test \"packages/*/test/*.test.js\"",
+    "loadtest": "node scripts/loadtest.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
