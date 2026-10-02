@@ -8,6 +8,7 @@
  *   POST /api/cache/flush                        empty this instance's memory cache (demo)
  *   POST /api/workers  {"count": n}              local mode: set the worker count by hand
  *   GET  /healthz                                load balancer health check
+ *   GET  /*                                      the built web client, when WEB_ROOT is set
  *
  * Stateless apart from caches: any instance can answer any request, which is
  * what lets a load balancer spread requests across however many are running.
@@ -15,7 +16,7 @@
 import { createServer } from "node:http";
 import { ParamError, listFractals } from "@fractal-farm/core";
 import { createPlatform, loadConfig } from "@fractal-farm/platform";
-import { LocalWorkerPool } from "./localWorkers.js";
+import { serveStatic } from "./static.js";
 import { Stats } from "./stats.js";
 import { TileService } from "./tiles.js";
 
@@ -29,8 +30,14 @@ const tiles = new TileService({
   observeRenders: config.platform !== "local",
 });
 
+// Local mode only, and loaded lazily: in the cloud, workers are their own
+// containers and the API image does not run render code at all.
 const localWorkers =
-  config.platform === "local" ? new LocalWorkerPool({ ...platform, stats }) : null;
+  config.platform === "local"
+    ? new (await import("./localWorkers.js")).LocalWorkerPool({ ...platform, stats })
+    : null;
+
+const webRoot = process.env.WEB_ROOT;
 
 const TILE_PATH = /^\/tiles\/([a-z0-9-]+)\/(\d{1,2})\/(\d{1,15})\/(\d{1,15})$/;
 const MAX_BODY_BYTES = 4096;
@@ -151,6 +158,10 @@ const server = createServer(async (request, response) => {
       const { count } = await readJson(request);
       if (!Number.isFinite(count)) throw new ParamError("count must be a number");
       return sendJson(response, 200, { workers: await localWorkers.setCount(count) });
+    }
+
+    if (request.method === "GET" && webRoot && !url.pathname.startsWith("/api/")) {
+      return await serveStatic(response, webRoot, url.pathname);
     }
 
     sendJson(response, 404, { error: "Not found" });
