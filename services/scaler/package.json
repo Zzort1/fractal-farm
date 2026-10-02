@@ -5,6 +5,8 @@
   "description": "Worker scaling controller: target tracking on queue backlog per worker, applied through ecs:UpdateService.",
   "type": "module",
   "dependencies": {
+    "@aws-sdk/client-ecs": "^3.1146.0",
+    "@aws-sdk/client-s3": "^3.1146.0",
     "@fractal-farm/platform": "*"
   }
 }
