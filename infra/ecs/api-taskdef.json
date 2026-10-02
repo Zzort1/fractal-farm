@@ -1,0 +1,94 @@
+{
+  "family": "n5453313-fractal-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::901444280953:role/Execution-Role-CAB432-ECS",
+  "taskRoleArn": "arn:aws:iam::901444280953:role/Task-Role-CAB432-ECS",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "tags": [
+    {
+      "key": "qut-username",
+      "value": "n5453313@qut.edu.au"
+    },
+    {
+      "key": "purpose",
+      "value": "assessment 3"
+    }
+  ],
+  "containerDefinitions": [
+    {
+      "name": "api",
+      "image": "901444280953.dkr.ecr.ap-southeast-2.amazonaws.com/n5453313-fractal-api:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "AWS_REGION",
+          "value": "ap-southeast-2"
+        },
+        {
+          "name": "PLATFORM",
+          "value": "aws"
+        },
+        {
+          "name": "TILE_BUCKET",
+          "value": "n5453313-fractal-tiles"
+        },
+        {
+          "name": "QUEUE_URL",
+          "value": "https://sqs.ap-southeast-2.amazonaws.com/901444280953/n5453313-a3-render-queue"
+        },
+        {
+          "name": "DLQ_URL",
+          "value": "https://sqs.ap-southeast-2.amazonaws.com/901444280953/n5453313-a3-render-dlq"
+        },
+        {
+          "name": "PORT",
+          "value": "8080"
+        },
+        {
+          "name": "WEB_ROOT",
+          "value": "/app/web-dist"
+        },
+        {
+          "name": "MEMORY_CACHE_MB",
+          "value": "160"
+        },
+        {
+          "name": "RENDER_WAIT_MS",
+          "value": "2000"
+        }
+      ],
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+        ],
+        "interval": 15,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 10
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/n5453313-fractal-api",
+          "awslogs-region": "ap-southeast-2",
+          "awslogs-stream-prefix": "api"
+        }
+      }
+    }
+  ]
+}

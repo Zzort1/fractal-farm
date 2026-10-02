@@ -1,0 +1,63 @@
+{
+  "family": "n5453313-fractal-worker",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::901444280953:role/Execution-Role-CAB432-ECS",
+  "taskRoleArn": "arn:aws:iam::901444280953:role/Task-Role-CAB432-ECS",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "tags": [
+    {
+      "key": "qut-username",
+      "value": "n5453313@qut.edu.au"
+    },
+    {
+      "key": "purpose",
+      "value": "assessment 3"
+    }
+  ],
+  "containerDefinitions": [
+    {
+      "name": "worker",
+      "image": "901444280953.dkr.ecr.ap-southeast-2.amazonaws.com/n5453313-fractal-worker:latest",
+      "essential": true,
+      "environment": [
+        {
+          "name": "AWS_REGION",
+          "value": "ap-southeast-2"
+        },
+        {
+          "name": "PLATFORM",
+          "value": "aws"
+        },
+        {
+          "name": "TILE_BUCKET",
+          "value": "n5453313-fractal-tiles"
+        },
+        {
+          "name": "QUEUE_URL",
+          "value": "https://sqs.ap-southeast-2.amazonaws.com/901444280953/n5453313-a3-render-queue"
+        },
+        {
+          "name": "DLQ_URL",
+          "value": "https://sqs.ap-southeast-2.amazonaws.com/901444280953/n5453313-a3-render-dlq"
+        }
+      ],
+      "stopTimeout": 30,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/n5453313-fractal-worker",
+          "awslogs-region": "ap-southeast-2",
+          "awslogs-stream-prefix": "worker"
+        }
+      }
+    }
+  ]
+}
