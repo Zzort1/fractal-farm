@@ -16,7 +16,7 @@ VERSION="${1:-$(git rev-parse --short HEAD)}"
 
 cd "$(dirname "$0")/.."
 
-for repo in n5453313-fractal-api n5453313-fractal-worker; do
+for repo in n5453313-fractal-api n5453313-fractal-worker n5453313-fractal-scaler; do
   if $AWS ecr describe-repositories --repository-names "$repo" >/dev/null 2>&1; then
     echo "== ECR $repo exists"
   else
@@ -54,9 +54,10 @@ build_push() {
 
 build_push n5453313-fractal-api services/api/Dockerfile
 build_push n5453313-fractal-worker services/worker/Dockerfile
+build_push n5453313-fractal-scaler services/scaler/Dockerfile
 
 echo "== pushed $VERSION"
-for repo in n5453313-fractal-api n5453313-fractal-worker; do
+for repo in n5453313-fractal-api n5453313-fractal-worker n5453313-fractal-scaler; do
   $AWS ecr describe-images --repository-name "$repo" \
     --query "sort_by(imageDetails,&imagePushedAt)[-1].[imageTags[0],imageTags[1],imageSizeInBytes]" --output text
 done

@@ -14,7 +14,7 @@
     "dev:api": "npm run dev --workspace @fractal-farm/api",
     "dev:web": "npm run dev --workspace @fractal-farm/web",
     "build": "npm run build --workspace @fractal-farm/web",
-    "test": "node --test \"packages/*/test/*.test.js\"",
+    "test": "node --test \"packages/*/test/*.test.js\" \"services/*/test/*.test.js\"",
     "loadtest": "node scripts/loadtest.js"
   },
   "engines": {

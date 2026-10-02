@@ -1,10 +1,7 @@
-# Fractal Farm render worker.
+# Fractal Farm worker scaling controller.
 #
 # Build from the repository root:
-#   docker build -f services/worker/Dockerfile -t n5453313-fractal-worker .
-#
-# No ports: a worker only pulls from the queue and writes to the store, so it
-# needs no inbound network path at all.
+#   docker build -f services/scaler/Dockerfile -t n5453313-fractal-scaler .
 
 FROM node:22-alpine
 WORKDIR /app
@@ -16,13 +13,13 @@ COPY services/api/package.json services/api/
 COPY services/worker/package.json services/worker/
 COPY services/scaler/package.json services/scaler/
 COPY web/package.json web/
-RUN npm ci --omit=dev --workspace @fractal-farm/worker --no-audit --no-fund
+RUN npm ci --omit=dev --workspace @fractal-farm/scaler --no-audit --no-fund
 
 COPY packages packages
-COPY services/worker/src services/worker/src
+COPY services/scaler/src services/scaler/src
 
 USER node
 ENV NODE_ENV=production \
     PLATFORM=aws
 
-CMD ["node", "services/worker/src/main.js"]
+CMD ["node", "services/scaler/src/main.js"]

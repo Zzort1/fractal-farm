@@ -3,6 +3,7 @@
  * stream, so it shows what the cloud is doing rather than what this browser did.
  */
 import { SOURCE_COLOURS } from "../viewer/FractalCanvas.jsx";
+import FleetPanel from "./FleetPanel.jsx";
 import Sparkline from "./Sparkline.jsx";
 import { useStats } from "./useStats.js";
 
@@ -106,16 +107,20 @@ export default function ControlRoom({ onFlushed }) {
         </h3>
         <Sparkline values={history.map((h) => h.queueDepth)} colour="#ffd60a" />
         <h3>
-          Busy workers <small>of {workers.length}</small>
+          Busy workers <small>of {latest.workers ?? workers.length}</small>
         </h3>
-        <Sparkline values={history.map((h) => h.busyWorkers)} colour="#ff2bd6" max={workers.length} />
+        <Sparkline values={history.map((h) => h.busyWorkers)} colour="#ff2bd6" max={latest.workers ?? workers.length} />
+        <h3>Workers running</h3>
+        <Sparkline values={history.map((h) => h.workers)} colour="#9b5de5" />
         <h3>Requests per second</h3>
         <Sparkline values={history.map((h) => h.requests)} colour="#00f5d4" />
       </section>
 
+      {stats.fleet && <FleetPanel fleet={stats.fleet} />}
+
       <section>
         <h3>
-          Workers <small>{busy} busy</small>
+          {stats.platform === "local" ? "Workers" : "Workers seen rendering"} <small>{busy} busy</small>
           {stats.platform === "local" && (
             <span className="stepper">
               <button type="button" onClick={() => setWorkers(workers.length - 1)} aria-label="Remove a worker">

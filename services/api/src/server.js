@@ -16,13 +16,27 @@
 import { createServer } from "node:http";
 import { ParamError, listFractals } from "@fractal-farm/core";
 import { createPlatform, loadConfig } from "@fractal-farm/platform";
+import { Fleet } from "./fleet.js";
 import { serveStatic } from "./static.js";
 import { Stats } from "./stats.js";
 import { TileService } from "./tiles.js";
 
 const config = loadConfig();
 const platform = createPlatform(config);
-const stats = new Stats({ queue: platform.queue, cache: platform.cache, platform: config.platform });
+// In the cloud, the control room also shows the container fleet and the scaler.
+const fleet =
+  config.platform === "aws"
+    ? new Fleet({
+        region: config.region,
+        cluster: process.env.ECS_CLUSTER || "n5453313-a2-cluster",
+        services: {
+          workers: process.env.WORKER_SERVICE || "n5453313-fractal-worker",
+          api: process.env.API_SERVICE || "n5453313-fractal-api",
+        },
+        bucket: config.tileBucket,
+      })
+    : null;
+const stats = new Stats({ queue: platform.queue, cache: platform.cache, platform: config.platform, fleet });
 const tiles = new TileService({
   ...platform,
   stats,

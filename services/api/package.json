@@ -9,6 +9,8 @@
     "start": "node src/server.js"
   },
   "dependencies": {
+    "@aws-sdk/client-ecs": "^3.1146.0",
+    "@aws-sdk/client-s3": "^3.1146.0",
     "@fractal-farm/core": "*",
     "@fractal-farm/platform": "*",
     "@fractal-farm/worker": "*"

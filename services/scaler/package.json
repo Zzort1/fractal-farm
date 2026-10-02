@@ -1,0 +1,10 @@
+{
+  "name": "@fractal-farm/scaler",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Worker scaling controller: target tracking on queue backlog per worker, applied through ecs:UpdateService.",
+  "type": "module",
+  "dependencies": {
+    "@fractal-farm/platform": "*"
+  }
+}

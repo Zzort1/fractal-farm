@@ -13,6 +13,7 @@ COPY packages/fractal-core/package.json packages/fractal-core/
 COPY packages/platform/package.json packages/platform/
 COPY services/api/package.json services/api/
 COPY services/worker/package.json services/worker/
+COPY services/scaler/package.json services/scaler/
 COPY web/package.json web/
 RUN npm ci --workspace @fractal-farm/web --no-audit --no-fund
 COPY packages/fractal-core packages/fractal-core
@@ -30,6 +31,7 @@ COPY packages/fractal-core/package.json packages/fractal-core/
 COPY packages/platform/package.json packages/platform/
 COPY services/api/package.json services/api/
 COPY services/worker/package.json services/worker/
+COPY services/scaler/package.json services/scaler/
 COPY web/package.json web/
 RUN npm ci --omit=dev --workspace @fractal-farm/api --no-audit --no-fund
 

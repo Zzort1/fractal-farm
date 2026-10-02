@@ -21,9 +21,10 @@ const WORKER_FORGET_MS = 5 * 60 * 1000;
 
 export class Stats {
   /**
-   * @param {{queue: Object, cache: Object, platform: string}} deps - Sources of gauge readings
+   * @param {{queue: Object, cache: Object, platform: string, fleet?: Object}} deps - Sources of gauge readings
    */
-  constructor({ queue, cache, platform }) {
+  constructor({ queue, cache, platform, fleet = null }) {
+    this.fleet = fleet;
     this.queue = queue;
     this.cache = cache;
     this.platform = platform;
@@ -155,6 +156,7 @@ export class Stats {
         avgMs: w.tiles ? Math.round(w.totalMs / w.tiles) : 0,
       })),
       recent: this.recent,
+      fleet: this.fleet?.snapshot() ?? null,
       history: this.history,
     };
   }
@@ -223,7 +225,7 @@ export class Stats {
         this.platform === "local"
           ? [...this.workers.values()].filter((w) => w.state === "busy").length
           : this.depth.inflight,
-      workers: this.workers.size,
+      workers: this.fleet?.snapshot()?.workers?.running ?? this.workers.size,
     });
     if (this.history.length > HISTORY_SECONDS) this.history.shift();
     this.lastCounters = { ...c };
