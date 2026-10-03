@@ -11,6 +11,7 @@
  */
 import { useEffect, useRef } from "react";
 import { workerColour } from "@fractal-farm/core";
+import { NODE_INFO, TASK_STATES } from "./explain.js";
 
 const C = {
   bg: "#06031a",
@@ -71,6 +72,10 @@ export default function HoodMap(props) {
       edgeHeat: new Map(), // edge key → last activity time
       nodeHeat: new Map(),
       gone: new Set(), // task nodes already faded out; ECS lists stopped tasks for a while
+      hl: new Set(), // spotlit node ids this frame
+      hover: null,
+      emph: false,
+      emphLabel: null,
     };
     const now = () => performance.now();
     const dur = (ms) => ms / (propsRef.current.speed || 1);
@@ -188,14 +193,17 @@ export default function HoodMap(props) {
 
     function particle(path, colour, options = {}) {
       if (state.particles.length > MAX_PARTICLES) state.particles.splice(0, state.particles.length - MAX_PARTICLES);
+      // Replays are re-enactments: bigger, slower, always labelled.
+      const emph = state.emph;
       state.particles.push({
         path,
         colour,
-        start: now() + dur(options.delay ?? 0),
-        dur: dur(options.dur ?? 650),
-        size: options.size ?? 3,
+        start: now() + dur((options.delay ?? 0) * (emph ? 1.9 : 1)),
+        dur: dur((options.dur ?? 650) * (emph ? 1.9 : 1)),
+        size: (options.size ?? 3) * (emph ? 1.7 : 1),
         hollow: options.hollow ?? false,
-        label: options.label ?? null,
+        label: options.label ?? (emph ? state.emphLabel : null),
+        emph,
       });
       for (let i = 0; i < path.length - 1; i += 1) {
         state.edgeHeat.set(edgeKey(path[i], path[i + 1]), { t: now() + dur(options.delay ?? 0), colour });
@@ -329,7 +337,10 @@ export default function HoodMap(props) {
       }
     }
 
-    const unsubscribe = propsRef.current.bus.subscribe((events) => {
+    const bus = propsRef.current.bus;
+    const unsubscribe = bus.subscribe((events) => {
+      // While the explainer narrates, live traffic stays off the map.
+      if (bus.ui.muteLive) return;
       // Spread a batch across its 100 ms window instead of firing it at once.
       events.forEach((e, i) => {
         const stagger = events.length > 1 ? (i / events.length) * 100 : 0;
@@ -337,6 +348,49 @@ export default function HoodMap(props) {
         else onEvent(e);
       });
     });
+
+    const replayLabel = (e) =>
+      e.type === "call" ? e.op : e.type === "response" ? `HTTP ${e.status}` : e.type === "request" ? "GET tile" : e.type;
+
+    const unsubscribeReplay = bus.onReplay((events) => {
+      events.forEach((e, i) => {
+        setTimeout(() => {
+          state.emph = true;
+          state.emphLabel = replayLabel(e);
+          onEvent(e);
+          state.emph = false;
+        }, dur(i * 420));
+      });
+    });
+
+    // ---------- hover and click ----------
+
+    function nodeAt(x, y) {
+      const inside = (b) => b && Math.abs(x - b.x) <= b.w / 2 && Math.abs(y - b.y) <= b.h / 2;
+      for (const node of [...state.dyn.values()].reverse()) if (inside(node)) return node.key;
+      for (const id of Object.keys(STATIC)) if (inside(staticBox(id))) return id;
+      return null;
+    }
+
+    const onMove = (event) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const id = nodeAt(x, y);
+      state.hover = id ? { id, x, y } : null;
+      canvas.style.cursor = id ? "pointer" : "default";
+    };
+    const onLeave = () => {
+      state.hover = null;
+    };
+    const onClick = (event) => {
+      const rect = canvas.getBoundingClientRect();
+      const id = nodeAt(event.clientX - rect.left, event.clientY - rect.top);
+      if (id) propsRef.current.onNodeClick?.(id);
+    };
+    canvas.addEventListener("mousemove", onMove);
+    canvas.addEventListener("mouseleave", onLeave);
+    canvas.addEventListener("click", onClick);
 
     // ---------- drawing ----------
 
@@ -374,7 +428,8 @@ export default function HoodMap(props) {
       const y = b.y - b.h / 2;
       const heat = state.nodeHeat.get(options.key);
       const hot = heat ? Math.max(0, 1 - (t - heat.t) / 900) : 0;
-      const alpha = options.alpha ?? 1;
+      // During a spotlight, everything not spotlit recedes.
+      const alpha = (options.alpha ?? 1) * (state.hl.size && !state.hl.has(options.key) ? 0.28 : 1);
 
       ctx.save();
       ctx.globalAlpha = alpha;
@@ -453,6 +508,8 @@ export default function HoodMap(props) {
       const t = now();
       const hot = heat ? Math.max(0, 1 - (t - heat.t) / 1200) : 0;
       ctx.save();
+      // During a spotlight, edges not between spotlit components recede.
+      if (state.hl.size && !(state.hl.has(a) && state.hl.has(b))) ctx.globalAlpha = 0.25;
       ctx.beginPath();
       ctx.moveTo(p.x, p.y);
       const mx = (p.x + q.x) / 2;
@@ -525,7 +582,7 @@ export default function HoodMap(props) {
           ctx.fill();
         }
         ctx.shadowBlur = 0;
-        if (p.label && calm && f > 0.15 && f < 0.85) {
+        if (p.label && (calm || p.emph) && f > 0.15 && f < 0.85) {
           ctx.font = `600 9.5px ${MONO}`;
           ctx.fillStyle = p.colour;
           ctx.fillText(p.label, pos.x + 7, pos.y - 6);
@@ -641,6 +698,17 @@ export default function HoodMap(props) {
 
       syncFleet();
       placeDynamic();
+
+      // Expand the explainer's spotlight ("api:*" / "wk:*" = every task of a kind).
+      state.hl = new Set();
+      for (const id of p.bus.ui.highlight ?? []) {
+        if (id === "api:*" || id === "wk:*") {
+          const prefix = id.slice(0, -1);
+          for (const key of state.dyn.keys()) if (key.startsWith(prefix)) state.hl.add(key);
+        } else {
+          state.hl.add(id);
+        }
+      }
 
       ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
       ctx.fillStyle = C.bg;
@@ -784,10 +852,120 @@ export default function HoodMap(props) {
         ctx.restore();
       }
 
+      drawSpotlight(t);
       drawParticles(t);
       drawPulses(t);
       drawBanners(t);
       drawLegend();
+      drawTooltip(m);
+    }
+
+    function drawSpotlight(t) {
+      if (!state.hl.size) return;
+      ctx.save();
+      ctx.setLineDash([7, 5]);
+      ctx.lineDashOffset = -t / 40;
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = C.white;
+      ctx.globalAlpha = 0.55 + 0.35 * Math.sin(t / 260);
+      for (const id of state.hl) {
+        const b = box(id);
+        if (!b) continue;
+        roundRect(b.x - b.w / 2 - 7, b.y - b.h / 2 - 7, b.w + 14, b.h + 14, 13);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function wrap(text, width) {
+      const words = String(text).split(" ");
+      const lines = [];
+      let line = "";
+      for (const word of words) {
+        const next = line ? `${line} ${word}` : word;
+        if (ctx.measureText(next).width > width && line) {
+          lines.push(line);
+          line = word;
+        } else {
+          line = next;
+        }
+      }
+      if (line) lines.push(line);
+      return lines;
+    }
+
+    function drawTooltip(m) {
+      const hover = state.hover;
+      if (!hover) return;
+      const p = propsRef.current;
+      const dynNode = state.dyn.get(hover.id);
+      const base = dynNode ? (dynNode.kind === "api" ? "api" : "worker") : hover.id;
+      const info = NODE_INFO[base];
+      if (!info) return;
+
+      const live = [];
+      if (dynNode) {
+        const status = dynNode.lastStatus ?? "RUNNING";
+        live.push(`${status}: ${TASK_STATES[status] ?? ""}`);
+        if (dynNode.az || dynNode.ip) live.push(`${dynNode.az ?? "?"} · ${dynNode.ip ?? "?"}`);
+        if (dynNode.cpu) live.push(`${dynNode.cpu / 1024} vCPU · ${(dynNode.memory || 0) / 1024} GB · task definition rev ${dynNode.revision ?? "?"}`);
+        if (dynNode.kind === "worker") live.push(`${dynNode.renders} tiles rendered here${dynNode.lastMs ? ` · last ${dynNode.lastMs} ms` : ""}`);
+      } else if (base === "sqs" || base === "dlq") {
+        const q = p.stats?.queue;
+        if (q) live.push(`now: ${q.visible} waiting · ${q.inflight} in flight · ${q.deadLetters} dead-lettered`);
+      } else if (base === "s3") {
+        live.push(`now: GET ${m.s3GetPerS.toFixed(1)}/s · HEAD ${m.s3HeadPerS.toFixed(1)}/s · PUT ${m.s3PutPerS.toFixed(1)}/s`);
+      } else if (base === "alb" || base === "browser") {
+        live.push(`now: ${m.requestsPerS.toFixed(1)} req/s · p50 ${m.p50 ?? "–"} ms · p95 ${m.p95 ?? "–"} ms`);
+      } else if (base === "scaler" && p.fleet?.scaler) {
+        live.push(`now: ${p.fleet.scaler.reason}`);
+      } else if (base === "ecs" && p.fleet?.workers) {
+        live.push(`now: workers ${p.fleet.workers.running}/${p.fleet.workers.desired} running/desired`);
+      }
+
+      const width = 340;
+      ctx.save();
+      ctx.font = `11px ${MONO}`;
+      const sections = [
+        { lines: wrap(info.what, width - 24), colour: C.text },
+        { lines: wrap(`AWS: ${info.aws}`, width - 24), colour: C.muted },
+        { lines: wrap(`Pattern: ${info.pattern}`, width - 24), colour: C.violet },
+        ...live.map((l) => ({ lines: wrap(l, width - 24), colour: C.cyan })),
+      ];
+      const lineH = 14;
+      const height = 34 + sections.reduce((n, s) => n + s.lines.length * lineH + 5, 0) + 16;
+      let x = hover.x + 16;
+      let y = hover.y + 16;
+      if (x + width > state.W - 8) x = hover.x - width - 16;
+      if (y + height > state.H - 8) y = Math.max(8, state.H - height - 8);
+
+      roundRect(x, y, width, height, 10);
+      ctx.fillStyle = "rgba(10, 6, 34, 0.96)";
+      ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
+      ctx.shadowBlur = 18;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = C.sky;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      ctx.font = `700 13px ${MONO}`;
+      ctx.fillStyle = C.sky;
+      ctx.fillText(dynNode ? `${info.title} · ${dynNode.id}` : info.title, x + 12, y + 22);
+      ctx.font = `11px ${MONO}`;
+      let cy = y + 42;
+      for (const section of sections) {
+        ctx.fillStyle = section.colour;
+        for (const line of section.lines) {
+          ctx.fillText(line, x + 12, cy);
+          cy += lineH;
+        }
+        cy += 5;
+      }
+      ctx.fillStyle = C.muted;
+      ctx.font = `10px ${MONO}`;
+      ctx.fillText("click to filter the call log to this component", x + 12, y + height - 10);
+      ctx.restore();
     }
 
     let raf = 0;
@@ -810,6 +988,10 @@ export default function HoodMap(props) {
       cancelAnimationFrame(raf);
       resize.disconnect();
       unsubscribe();
+      unsubscribeReplay();
+      canvas.removeEventListener("mousemove", onMove);
+      canvas.removeEventListener("mouseleave", onLeave);
+      canvas.removeEventListener("click", onClick);
     };
   }, []);
 

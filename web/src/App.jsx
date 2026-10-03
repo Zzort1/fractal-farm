@@ -17,6 +17,8 @@ import ControlPanel from "./panels/ControlPanel.jsx";
 import ControlRoom from "./panels/ControlRoom.jsx";
 import { useStats } from "./panels/useStats.js";
 import CallLog from "./hood/CallLog.jsx";
+import Explainer from "./hood/Explainer.jsx";
+import { focusFor } from "./hood/explain.js";
 import HoodMap from "./hood/HoodMap.jsx";
 import HoodMetrics from "./hood/HoodMetrics.jsx";
 import { useTrace } from "./hood/useTrace.js";
@@ -67,6 +69,29 @@ export default function App() {
   const [showControl, setShowControl] = useState(false);
   const { stats, connected } = useStats();
   const bus = useTrace(tab === "hood");
+  // Explainer: null | { mode: "tour" } | { mode: "waiting" } | { mode: "journey", key }
+  const [explainer, setExplainer] = useState(null);
+  const [focus, setFocus] = useState(null);
+
+  const followTile = useCallback((key) => setExplainer({ mode: "journey", key }), []);
+
+  /** Start an explanation from the strip's buttons. */
+  const explain = useCallback(
+    (kind) => {
+      if (kind === "tour" || kind === "waiting") {
+        setExplainer({ mode: kind });
+        return;
+      }
+      // "latest": the most recent tile that was actually rendered, else any served tile.
+      const events = bus.events;
+      const pick =
+        [...events].reverse().find((e) => e.type === "render" && e.key) ??
+        [...events].reverse().find((e) => e.type === "response" && e.status === 200 && e.key);
+      if (pick) setExplainer({ mode: "journey", key: pick.key });
+      else setExplainer({ mode: "waiting" });
+    },
+    [bus],
+  );
 
   useEffect(() => {
     try {
@@ -140,7 +165,7 @@ export default function App() {
       </header>
 
       {tab === "hood" ? (
-        <CallLog bus={bus} />
+        <CallLog bus={bus} onFollow={followTile} focus={focus} onClearFocus={() => setFocus(null)} />
       ) : (
       <ControlPanel
         fractalId={fractalId}
@@ -169,6 +194,7 @@ export default function App() {
               onSpeed={setSpeed}
               showControl={showControl}
               onShowControl={setShowControl}
+              onExplain={explain}
             />
             <div className="hood-map">
               <HoodMap
@@ -179,7 +205,18 @@ export default function App() {
                 held={view?.held ?? 0}
                 speed={speed}
                 showControl={showControl}
+                onNodeClick={(id) => setFocus(focusFor(id))}
               />
+              {explainer && (
+                <Explainer
+                  bus={bus}
+                  mode={explainer.mode}
+                  tileKey={explainer.key}
+                  speed={speed}
+                  onKey={followTile}
+                  onClose={() => setExplainer(null)}
+                />
+              )}
             </div>
           </div>
         )}

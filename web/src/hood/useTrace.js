@@ -39,6 +39,22 @@ function createBus() {
       return () => this.listeners.delete(listener);
     },
 
+    // --- explainer channel: replays and shared view state -------------------
+
+    /** Components to spotlight on the map ("api:*" / "wk:*" mean all of a kind). */
+    ui: { highlight: [], muteLive: false },
+    replayListeners: new Set(),
+
+    /** Re-enact past events on the map, slowly and labelled. */
+    replay(events) {
+      for (const listener of this.replayListeners) listener(events);
+    },
+
+    onReplay(listener) {
+      this.replayListeners.add(listener);
+      return () => this.replayListeners.delete(listener);
+    },
+
     /**
      * Rates and latency over the last `seconds`.
      * @param {number} seconds - Window length

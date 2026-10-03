@@ -1123,3 +1123,260 @@ input[type="range"] {
 .c-red { color: var(--red); }
 .c-muted { color: var(--muted); }
 .c-text { color: var(--text); }
+
+/* ---------- explainer ---------- */
+
+.hm-explain {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+
+.explain-button {
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: linear-gradient(var(--bg-2), var(--bg-2)) padding-box, var(--rainbow) border-box;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.explain-button:hover {
+  background: linear-gradient(rgba(15, 10, 46, 0.6), rgba(15, 10, 46, 0.6)) padding-box, var(--rainbow) border-box;
+}
+
+.explainer {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 6;
+  width: min(400px, 46%);
+  max-height: calc(100% - 260px);
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(10, 6, 34, 0.94);
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  box-shadow: 0 0 0 1px rgba(76, 201, 240, 0.5), 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(76, 201, 240, 0.18);
+  backdrop-filter: blur(10px);
+}
+
+.ex-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ex-head b {
+  display: block;
+  font-size: 14px;
+  background: var(--rainbow);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.ex-head code {
+  display: block;
+  margin-top: 2px;
+  font: 10.5px var(--mono);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 330px;
+}
+
+.ex-close {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+}
+
+.ex-wait {
+  margin: 10px 0 2px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.ex-progress {
+  height: 4px;
+  margin: 10px 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.ex-progress span {
+  display: block;
+  height: 100%;
+  background: var(--rainbow);
+  transition: width 0.4s;
+}
+
+.ex-current {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--tone) 12%, transparent);
+  border-left: 3px solid var(--tone);
+}
+
+.ex-current-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ex-current-title i,
+.ex-step i {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--tone);
+  box-shadow: 0 0 8px var(--tone);
+}
+
+.ex-current-title b {
+  color: var(--tone);
+  font-size: 13.5px;
+}
+
+.ex-current-title small {
+  margin-left: auto;
+  font: 11px var(--mono);
+  color: var(--muted);
+}
+
+.ex-current p {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.ex-why {
+  color: var(--muted);
+}
+
+.ex-why b {
+  color: var(--gold);
+}
+
+.ex-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 10px 0 6px;
+}
+
+.ex-controls button {
+  min-width: 30px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.ex-controls button:hover {
+  border-color: var(--cyan);
+}
+
+.ex-controls .ex-play {
+  padding: 0 10px;
+  background: linear-gradient(120deg, var(--violet), var(--sky));
+  border-color: transparent;
+  font-weight: 700;
+}
+
+.ex-count {
+  margin-left: auto;
+  font: 11px var(--mono);
+  color: var(--muted);
+}
+
+.ex-steps {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.ex-step {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.ex-step:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ex-step.done {
+  color: var(--text);
+  opacity: 0.75;
+}
+
+.ex-step.current {
+  color: var(--text);
+  background: color-mix(in srgb, var(--tone) 16%, transparent);
+}
+
+.ex-step small {
+  font: 10.5px var(--mono);
+}
+
+.ex-foot {
+  margin: 6px 0 0;
+  font-size: 10.5px;
+}
+
+.log-focus {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  background: rgba(76, 201, 240, 0.12);
+  border: 1px solid rgba(76, 201, 240, 0.4);
+}
+
+.log-focus b {
+  color: var(--sky);
+}
+
+.log-focus button {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.log-lines li.followable {
+  cursor: pointer;
+}
+
+.log-lines li.followable:hover {
+  background: rgba(155, 93, 229, 0.14);
+}
