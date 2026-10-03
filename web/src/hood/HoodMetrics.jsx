@@ -9,10 +9,10 @@ import { PRICES, computeHourly, fixedHourly, money, requestsHourly } from "./pri
 const SPEEDS = [1, 0.5, 0.25];
 
 /**
- * @param {Object} props - { bus, fleet, stats, platform, speed, onSpeed, showControl, onShowControl }
+ * @param {Object} props - { bus, fleet, stats, platform, speed, onSpeed, showControl, onShowControl, onExplain }
  * @returns {JSX.Element} Strip
  */
-export default function HoodMetrics({ bus, fleet, stats, platform, speed, onSpeed, showControl, onShowControl }) {
+export default function HoodMetrics({ bus, fleet, stats, platform, speed, onSpeed, showControl, onShowControl, onExplain }) {
   const [, setTick] = useState(0);
   const session = useRef({ usd: 0, last: performance.now(), opened: Date.now() });
 
@@ -94,6 +94,17 @@ export default function HoodMetrics({ bus, fleet, stats, platform, speed, onSpee
           {bus.received.toLocaleString()} events
           {bus.droppedTotal ? ` · ${bus.droppedTotal.toLocaleString()} sampled` : ""}
         </small>
+      </div>
+      <div className="hm-explain">
+        <button type="button" className="explain-button" onClick={() => onExplain("waiting")} title="Narrate the next tile that misses every cache, live">
+          ◎ Follow next miss
+        </button>
+        <button type="button" className="explain-button" onClick={() => onExplain("latest")} title="Replay the most recently rendered tile, step by step">
+          ↺ Explain latest tile
+        </button>
+        <button type="button" className="explain-button" onClick={() => onExplain("tour")} title="A guided walk through the architecture">
+          ✦ Guided tour
+        </button>
       </div>
     </div>
   );

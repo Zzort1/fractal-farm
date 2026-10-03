@@ -106,10 +106,10 @@ function describe(e) {
 const isControl = (e) => e.control || e.type === "scaler";
 
 /**
- * @param {{bus: Object}} props - Trace bus
+ * @param {{bus: Object, onFollow?: Function, focus?: Object|null, onClearFocus?: Function}} props - Trace bus; follow a tile; component focus from the map
  * @returns {JSX.Element} Panel
  */
-export default function CallLog({ bus }) {
+export default function CallLog({ bus, onFollow, focus = null, onClearFocus }) {
   const [, setTick] = useState(0);
   const [paused, setPaused] = useState(false);
   const [filter, setFilter] = useState("all");
@@ -126,6 +126,7 @@ export default function CallLog({ bus }) {
     const e = bus.events[i];
     if (!showControl && isControl(e)) continue;
     if (!FILTERS[filter](e)) continue;
+    if (focus && !focus.match(e)) continue;
     const line = describe(e);
     if (line) lines.push({ e, ...line });
   }
@@ -153,8 +154,16 @@ export default function CallLog({ bus }) {
             control traffic
           </label>
         </div>
+        {focus && (
+          <div className="log-focus">
+            focus: <b>{focus.label}</b>
+            <button type="button" onClick={onClearFocus} aria-label="Clear focus">
+              ✕
+            </button>
+          </div>
+        )}
         <p className="hint">
-          {bus.received.toLocaleString()} events received
+          Click a line to explain that tile's journey · {bus.received.toLocaleString()} events received
           {bus.droppedTotal > 0 && <span className="c-orange"> · {bus.droppedTotal.toLocaleString()} sampled out under load</span>}
         </p>
       </div>
@@ -162,7 +171,12 @@ export default function CallLog({ bus }) {
         {lines.map(({ e, op, opCls, detail, result, resultCls }) => {
           const actor = actorOf(e);
           return (
-            <li key={`${e.inst}-${e.seq}`}>
+            <li
+              key={`${e.inst}-${e.seq}`}
+              className={e.key ? "followable" : ""}
+              onClick={e.key ? () => onFollow?.(e.key) : undefined}
+              title={e.key ? "Explain this tile's journey, step by step" : undefined}
+            >
               <span className="log-time">{clock(e.t)}</span>
               <span className={`log-actor ${actor.cls}`}>{actor.text}</span>
               <span className={`log-op ${opCls}`}>{op}</span>
