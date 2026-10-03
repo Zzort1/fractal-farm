@@ -27,15 +27,19 @@ import {
   tileKey,
   tileUrl,
 } from "@fractal-farm/core";
+import { context, currentContext } from "./trace.js";
+
+const NO_TRACE = { emit() {} };
 
 /** How long a queued job may go unanswered before it is assumed lost. */
 const JOB_TIMEOUT_MS = 120_000;
 
 export class TileService {
   /**
-   * @param {Object} deps - { queue, store, cache, notifier, stats, renderWaitMs, observeRenders }
+   * @param {Object} deps - { queue, store, cache, notifier, stats, renderWaitMs, observeRenders, trace }
    */
-  constructor({ queue, store, cache, notifier, stats, renderWaitMs, observeRenders = false }) {
+  constructor({ queue, store, cache, notifier, stats, renderWaitMs, observeRenders = false, trace = NO_TRACE }) {
+    this.trace = trace;
     this.observeRenders = observeRenders;
     this.queue = queue;
     this.store = store;
@@ -67,6 +71,7 @@ export class TileService {
     const key = tileKey({ fractal: fractalId, paramKey, z, x, y });
 
     const cached = this.cache.get(key);
+    this.trace.emit("cache", { layer: "memory", key, hit: Boolean(cached), ...currentContext() });
     if (cached) return { status: 200, body: cached, source: "memory", key };
 
     const stored = await this.store.get(key);
@@ -78,6 +83,7 @@ export class TileService {
     let done = this.pending.get(key);
     if (done) {
       this.stats.count("coalesced");
+      this.trace.emit("coalesced", { key, ...currentContext() });
     } else {
       done = this.#enqueue(key, { fractal: fractalId, params, paramKey, z, x, y });
     }
@@ -99,11 +105,14 @@ export class TileService {
     // On completion the tile is read once and put in the memory cache, so
     // every request coalesced onto this render — and every poll after a
     // 202 — is answered from memory rather than another store read.
-    const done = this.notifier
-      .waitFor(key, JOB_TIMEOUT_MS)
+    // The completion poll is its own actor in the trace: it outlives the
+    // request that started it and serves every request coalesced onto it.
+    const done = context
+      .run({ actor: "poll", key }, () => this.notifier.waitFor(key, JOB_TIMEOUT_MS))
       .then(async (payload) => {
         if (!payload) {
           this.stats.count("jobTimeouts");
+          this.trace.emit("job-timeout", { key });
           return null;
         }
         const bytes = await this.store.get(key);
@@ -137,12 +146,14 @@ export class TileService {
   #observe(key, bytes, spec) {
     try {
       const header = readTileHeader(gunzipSync(bytes));
-      this.stats.observeRender({
+      const render = {
         workerId: header.workerId || "unknown",
         renderMs: header.renderMs,
         key,
         waitedMs: Date.now() - spec.enqueuedAt,
-      });
+      };
+      this.stats.observeRender(render);
+      this.trace.emit("render", { ...render, bytes: bytes.byteLength, via: "tile-header" });
     } catch (error) {
       console.error("Unreadable tile header", key, error.message);
     }
