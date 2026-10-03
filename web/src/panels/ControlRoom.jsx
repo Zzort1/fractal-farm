@@ -6,7 +6,6 @@ import { SOURCE_COLOURS } from "../viewer/FractalCanvas.jsx";
 import { clientStats } from "../viewer/tileLoader.js";
 import FleetPanel from "./FleetPanel.jsx";
 import Sparkline from "./Sparkline.jsx";
-import { useStats } from "./useStats.js";
 
 const formatBytes = (bytes) =>
   bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
@@ -18,10 +17,6 @@ const postJson = (path, body) =>
     body: JSON.stringify(body ?? {}),
   });
 
-/**
- * @param {{onFlushed: Function}} props - Called after the server cache is flushed
- * @returns {JSX.Element} Panel
- */
 /**
  * This tab's view of the cache layers — including the browser's HTTP cache,
  * which the server can never count because those requests never reach it.
@@ -53,9 +48,11 @@ function ClientLayers({ held }) {
   );
 }
 
-export default function ControlRoom({ onFlushed, held = 0 }) {
-  const { stats, connected } = useStats();
-
+/**
+ * @param {{stats: Object|null, connected: boolean, onFlushed: Function, held: number}} props - Live stats, link state, flush callback, tiles held in this tab
+ * @returns {JSX.Element} Panel
+ */
+export default function ControlRoom({ stats, connected, onFlushed, held = 0 }) {
   if (!stats) {
     return (
       <aside className="panel panel-right">

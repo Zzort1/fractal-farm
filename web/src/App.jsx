@@ -5,12 +5,33 @@
  * hands it to the viewer. Parameters are canonicalised with the same core code
  * the API uses, so the browser always requests the canonical tile URL and
  * never pays for a redirect.
+ *
+ * Two views share one fractal viewer: "Explorer" shows it full size;
+ * "Under the hood" shrinks it into a corner window and fills the stage with
+ * the live architecture map, while the left panel becomes the AWS call log.
+ * The viewer stays mounted throughout, so the view and loaded tiles survive.
  */
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { canonicalParams, defaultParams, getFractal, listFractals } from "@fractal-farm/core";
 import ControlPanel from "./panels/ControlPanel.jsx";
 import ControlRoom from "./panels/ControlRoom.jsx";
+import { useStats } from "./panels/useStats.js";
+import CallLog from "./hood/CallLog.jsx";
+import HoodMap from "./hood/HoodMap.jsx";
+import HoodMetrics from "./hood/HoodMetrics.jsx";
+import { useTrace } from "./hood/useTrace.js";
 import FractalCanvas from "./viewer/FractalCanvas.jsx";
+
+/** ?view=hood opens straight into the hood; otherwise the tab open last. */
+function storedTab() {
+  const requested = new URLSearchParams(location.search).get("view");
+  if (requested === "hood" || requested === "explorer") return requested;
+  try {
+    return localStorage.getItem("ff-tab") === "hood" ? "hood" : "explorer";
+  } catch {
+    return "explorer";
+  }
+}
 
 const initialParams = Object.fromEntries(listFractals().map((f) => [f.id, defaultParams(f.id)]));
 
@@ -40,6 +61,20 @@ export default function App() {
   const [resetToken, setResetToken] = useState(0);
   const [clearToken, setClearToken] = useState(0);
   const lastValid = useRef({});
+  const [tab, setTab] = useState(storedTab);
+  const [mini, setMini] = useState("normal"); // normal | large | collapsed
+  const [speed, setSpeed] = useState(1);
+  const [showControl, setShowControl] = useState(false);
+  const { stats, connected } = useStats();
+  const bus = useTrace(tab === "hood");
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("ff-tab", tab);
+    } catch {
+      // Storage unavailable: the tab simply is not remembered.
+    }
+  }, [tab]);
 
   const fractal = getFractal(fractalId);
 
@@ -81,7 +116,7 @@ export default function App() {
   const magnification = view ? 2 ** (view.level || 0) : 1;
 
   return (
-    <div className="app">
+    <div className={`app tab-${tab}`}>
       <header className="topbar">
         <div className="brand">
           <span className="logo" aria-hidden="true" />
@@ -90,12 +125,23 @@ export default function App() {
             <p>a distributed, cached, auto-scaling fractal render farm</p>
           </div>
         </div>
+        <nav className="tabs" aria-label="View">
+          <button type="button" className={`tab${tab === "explorer" ? " active" : ""}`} onClick={() => setTab("explorer")}>
+            Explorer
+          </button>
+          <button type="button" className={`tab tab-hood${tab === "hood" ? " active" : ""}`} onClick={() => setTab("hood")}>
+            Under the hood
+          </button>
+        </nav>
         <div className="topbar-meta">
           <span className="pill">CAB432 · Assessment 3</span>
           <span className="pill pill-glow">{fractal.name}</span>
         </div>
       </header>
 
+      {tab === "hood" ? (
+        <CallLog bus={bus} />
+      ) : (
       <ControlPanel
         fractalId={fractalId}
         onFractal={setFractalId}
@@ -109,9 +155,51 @@ export default function App() {
         onOverlays={(patch) => setOverlays((o) => ({ ...o, ...patch }))}
         onReset={() => setResetToken((t) => t + 1)}
       />
+      )}
 
       <main className="stage">
-        <FractalCanvas
+        {tab === "hood" && (
+          <div className="hood">
+            <HoodMetrics
+              bus={bus}
+              fleet={stats?.fleet ?? null}
+              stats={stats}
+              platform={stats?.platform}
+              speed={speed}
+              onSpeed={setSpeed}
+              showControl={showControl}
+              onShowControl={setShowControl}
+            />
+            <div className="hood-map">
+              <HoodMap
+                bus={bus}
+                fleet={stats?.fleet ?? null}
+                stats={stats}
+                platform={stats?.platform}
+                held={view?.held ?? 0}
+                speed={speed}
+                showControl={showControl}
+              />
+            </div>
+          </div>
+        )}
+        <div className={`viewer-wrap${tab === "hood" ? ` mini mini-${mini}` : ""}`}>
+          {tab === "hood" && (
+            <div className="mini-bar">
+              <span>
+                {fractal.name} · level {view?.level ?? 0}
+              </span>
+              <span className="mini-buttons">
+                <button type="button" onClick={() => setMini(mini === "large" ? "normal" : "large")} aria-label="Resize">
+                  {mini === "large" ? "▭" : "▣"}
+                </button>
+                <button type="button" onClick={() => setMini(mini === "collapsed" ? "normal" : "collapsed")} aria-label="Minimise">
+                  {mini === "collapsed" ? "▴" : "▾"}
+                </button>
+              </span>
+            </div>
+          )}
+          <FractalCanvas
           fractalId={fractalId}
           query={canonical.query}
           params={canonical.params}
@@ -121,11 +209,19 @@ export default function App() {
           clearToken={clearToken}
           onViewChange={setView}
           onPick={pickJulia}
-        />
-        <div className="stage-help">drag to pan · scroll to zoom · double-click to dive · alt+double-click to rise</div>
+          />
+        </div>
+        {tab === "explorer" && (
+          <div className="stage-help">drag to pan · scroll to zoom · double-click to dive · alt+double-click to rise</div>
+        )}
       </main>
 
-      <ControlRoom onFlushed={() => setClearToken((t) => t + 1)} held={view?.held ?? 0} />
+      <ControlRoom
+        stats={stats}
+        connected={connected}
+        onFlushed={() => setClearToken((t) => t + 1)}
+        held={view?.held ?? 0}
+      />
 
       <footer className="statusbar">
         {view && (

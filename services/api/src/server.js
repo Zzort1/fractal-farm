@@ -5,6 +5,7 @@
  *   GET  /api/fractals                           the catalogue
  *   GET  /api/stats                              one stats snapshot
  *   GET  /api/events                             stats as a Server-Sent Events stream
+ *   GET  /api/trace                              every AWS call and fleet change, as an SSE stream
  *   POST /api/cache/flush                        empty this instance's memory cache (demo)
  *   POST /api/workers  {"count": n}              local mode: set the worker count by hand
  *   GET  /healthz                                load balancer health check
@@ -16,14 +17,44 @@
 import { createServer } from "node:http";
 import { ParamError, listFractals } from "@fractal-farm/core";
 import { createPlatform, loadConfig } from "@fractal-farm/platform";
+import { performance } from "node:perf_hooks";
 import { Fleet } from "./fleet.js";
+import { instrumentPlatform } from "./instrument.js";
 import { serveStatic } from "./static.js";
 import { Stats } from "./stats.js";
 import { TileService } from "./tiles.js";
+import { Trace, context } from "./trace.js";
+
+/**
+ * This instance's name: its ECS task id in the cloud, so trace events match
+ * the task list the fleet reader shows.
+ * @returns {Promise<string>} Instance id
+ */
+async function instanceName() {
+  const metadata = process.env.ECS_CONTAINER_METADATA_URI_V4;
+  if (metadata) {
+    try {
+      const task = await (await fetch(`${metadata}/task`)).json();
+      return task.TaskARN.split("/").pop().slice(0, 8);
+    } catch {
+      // Fall through.
+    }
+  }
+  return process.env.INSTANCE_ID || "local-api";
+}
 
 const config = loadConfig();
 const platform = createPlatform(config);
-// In the cloud, the control room also shows the container fleet and the scaler.
+const trace = new Trace({ instanceId: await instanceName(), platform: config.platform });
+// Every store and queue call from here on is a traced, attributed event.
+instrumentPlatform(platform, trace, config.platform);
+
+// Local mode only, and loaded lazily: in the cloud, workers are their own
+// containers and the API image does not run render code at all.
+let localWorkers = null;
+
+// In the cloud, the control room also shows the container fleet and the
+// scaler; locally the worker pool stands in for it.
 const fleet =
   config.platform === "aws"
     ? new Fleet({
@@ -32,26 +63,31 @@ const fleet =
         services: {
           workers: process.env.WORKER_SERVICE || "n5453313-fractal-worker",
           api: process.env.API_SERVICE || "n5453313-fractal-api",
+          scaler: process.env.SCALER_SERVICE || "n5453313-fractal-scaler",
         },
         bucket: config.tileBucket,
+        trace,
       })
-    : null;
+    : { snapshot: () => localWorkers?.snapshot() ?? null };
 const stats = new Stats({ queue: platform.queue, cache: platform.cache, platform: config.platform, fleet });
 const tiles = new TileService({
   ...platform,
   stats,
+  trace,
   renderWaitMs: config.renderWaitMs,
   observeRenders: config.platform !== "local",
 });
 
-// Local mode only, and loaded lazily: in the cloud, workers are their own
-// containers and the API image does not run render code at all.
-const localWorkers =
-  config.platform === "local"
-    ? new (await import("./localWorkers.js")).LocalWorkerPool({ ...platform, stats })
-    : null;
+if (config.platform === "local") {
+  const { LocalWorkerPool } = await import("./localWorkers.js");
+  localWorkers = new LocalWorkerPool({ ...platform, stats, trace });
+}
+
+let requestSeq = 0;
 
 const webRoot = process.env.WEB_ROOT;
+
+const elapsed = (started) => Math.round((performance.now() - started) * 10) / 10;
 
 const TILE_PATH = /^\/tiles\/([a-z0-9-]+)\/(\d{1,2})\/(\d{1,15})\/(\d{1,15})$/;
 const MAX_BODY_BYTES = 4096;
@@ -102,14 +138,37 @@ async function readJson(request) {
  */
 async function handleTile(response, match, url) {
   stats.count("requests");
+  const req = (requestSeq += 1);
+  const started = performance.now();
+  trace.emit("request", { req, path: url.pathname, query: url.search.slice(1) });
 
-  const result = await tiles.get({
-    fractal: match[1],
-    z: Number(match[2]),
-    x: Number(match[3]),
-    y: Number(match[4]),
-    search: url.searchParams,
-    rawQuery: url.search.replace(/^\?/, ""),
+  let result;
+  try {
+    // Everything done for this request is attributed to it in the trace.
+    result = await context.run({ actor: "api", req }, () =>
+      tiles.get({
+        fractal: match[1],
+        z: Number(match[2]),
+        x: Number(match[3]),
+        y: Number(match[4]),
+        search: url.searchParams,
+        rawQuery: url.search.replace(/^\?/, ""),
+      }),
+    );
+  } catch (error) {
+    trace.emit("response", { req, status: error instanceof ParamError ? 400 : 500, ms: elapsed(started), error: error.message });
+    throw error;
+  }
+
+  trace.emit("response", {
+    req,
+    key: result.key,
+    status: result.status,
+    source: result.source,
+    bytes: result.body?.byteLength,
+    ms: elapsed(started),
+    location: result.location,
+    error: result.error,
   });
 
   switch (result.status) {
@@ -158,6 +217,7 @@ const server = createServer(async (request, response) => {
       if (url.pathname === "/api/fractals") return sendJson(response, 200, { fractals: listFractals() });
       if (url.pathname === "/api/stats") return sendJson(response, 200, stats.snapshot());
       if (url.pathname === "/api/events") return stats.subscribe(response);
+      if (url.pathname === "/api/trace") return trace.subscribe(response);
     }
 
     if (request.method === "POST" && url.pathname === "/api/cache/flush") {
