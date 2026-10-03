@@ -775,7 +775,12 @@ export default function HoodMap(props) {
         ctx.save();
         ctx.font = `600 12px ${MONO}`;
         ctx.fillStyle = C.muted;
-        ctx.fillText("scaled to zero — the next miss wakes a worker", state.W * 0.745, state.H * 0.3);
+        const desired = fleet?.workers?.desired ?? 0;
+        ctx.fillText(
+          desired > 0 ? `desired ${desired} — ECS is placing Fargate tasks…` : "scaled to zero — the next miss wakes a worker",
+          state.W * 0.745,
+          state.H * 0.3,
+        );
         ctx.restore();
       }
 
